@@ -60,8 +60,12 @@ HTTP: `GET /` (client), `/healthz`, `/stats`, `/leaderboard?limit=20`, `/join/:c
 - **Deadlines** are server epoch ms = assign + `showMs` + `answerMs` + 400 ms grace.
 - **Drain** `0.42 × 1.5^max(0, min−0.5)` pts/s on all four, every 100 ms tick, from `startsAt`.
   `life.sync` goes out every 250 ms and after every change.
-- **Run end** the instant any meter hits 0 → `run.ended { cause: "<playerId>_depleted", standings, teamTime, tasksCleared }`,
+- **Run end** the instant any meter hits 0 → `run.ended { cause: "<playerId>_depleted", standings, teamTime, tasksCleared, timeline }`,
   run is persisted, room returns to lobby so the host can go again.
+  - Each standing has `partner`, `fed { plus, minus }` (partner credit from that player's solo tasks — co-op
+    bonuses excluded), `self` (life lost to their own slips) and the older `gave`/`cost` totals.
+  - `timeline { everyMs: 2000, ids, samples: [[elapsedMs, life of ids[0..3]], …], coops: [{ start, end, ok, variant }] }`
+    drives the end-screen life chart; the last sample is the moment the run ended.
 - **Drops** pause the run (`room.paused`). Reconnecting with the same `playerId` resumes the seat automatically;
   after 8 s a bot takes the seat and the run resumes. The player can still reclaim it later.
 

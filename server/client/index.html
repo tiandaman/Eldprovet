@@ -435,19 +435,28 @@
       const tot = Object.values(sc).reduce((acc, s) => ({ n: acc.n + s.n, ok: acc.ok + s.ok }), { n: 0, ok: 0 });
       const tt = e.teamTime;
       const band = tt > 180000 ? [GREEN, 'ABOVE AVERAGE'] : tt > 90000 ? [AMBER, 'AVERAGE'] : [DANGER, 'BELOW AVERAGE'];
-      const recap = e.standings.slice().sort((x, y) => x.slot - y.slot).map((s) =>
-        h('div', { class: 'row', style: 'gap:12px;height:46px;border-bottom:1px solid rgba(198,194,182,.1)' },
-          h('div', { style: 'width:9px;height:9px;border-radius:50%;background:' + colOf(s.slot) }),
-          span('font:500 12px var(--mono);letter-spacing:.1em;color:' + colOf(s.slot), nameOf(s.slot) + (s.bot ? ' · BOT' : '')),
+      // What each player fed their partner (solo tasks only — co-op bonuses aren't anyone's gift),
+      // plus what their own slips cost themselves.
+      const slotById = (id) => (e.standings.find((x) => x.playerId === id) || {}).slot || 0;
+      const recap = e.standings.slice().sort((x, y) => x.slot - y.slot).map((s) => {
+        const fed = s.fed || { plus: s.gave, minus: s.cost };
+        const ps = slotById(s.partner);
+        return h('div', { class: 'row', style: 'gap:10px;height:46px;border-bottom:1px solid rgba(198,194,182,.1)' },
+          h('div', { style: 'width:9px;height:9px;border-radius:50%;flex:none;background:' + colOf(s.slot) }),
+          span('font:500 12px var(--mono);letter-spacing:.1em;white-space:nowrap;color:' + colOf(s.slot), nameOf(s.slot) + (s.bot ? ' · BOT' : '')),
+          ps ? span('font:500 11px var(--mono);letter-spacing:.08em;white-space:nowrap;color:' + colOf(ps), '→ ' + nameOf(ps)) : null,
           h('div', { style: 'flex:1' }),
-          span('font:400 11px var(--mono);color:rgba(198,194,182,.72)', 'GAVE ' + Math.round(s.gave)),
-          span('font:400 11px var(--mono);color:rgba(198,194,182,.45)', '·'),
-          span('font:400 11px var(--mono);color:' + (s.cost > s.gave ? DANGER : 'rgba(198,194,182,.72)'), 'COST ' + Math.round(s.cost))));
+          span('font:400 11px var(--mono);color:' + GREEN, '+' + Math.round(fed.plus)),
+          span('font:400 11px var(--mono);color:' + (fed.minus > fed.plus ? DANGER : 'rgba(198,194,182,.72)'), '−' + Math.round(fed.minus)),
+          s.self ? span('font:400 10px var(--mono);letter-spacing:.06em;white-space:nowrap;color:rgba(198,194,182,.5)', 'SELF −' + Math.round(s.self)) : null);
+      });
+      const chart = e.timeline && e.timeline.samples && e.timeline.samples.length > 1 ? lifeChart(e, slotById) : null;
       const el = h('div', { class: 'col', style: 'height:100%;padding:96px 28px 46px;gap:24px;overflow:auto' },
         h('div', { class: 'col', style: 'gap:9px' },
           span('font:600 10px var(--mono);letter-spacing:.2em;color:' + DANGER, 'RUN ENDED'),
           h('span', { style: 'font:300 21px/1.25 var(--mono);color:' + INK }, 'RESULT FOR TEAM', h('br'), span('letter-spacing:.04em', S.code || '')),
           h('p', { style: 'margin:2px 0 0;font:400 12.5px/1.6 var(--sans);color:rgba(198,194,182,.72);text-wrap:pretty', text: headline + '. ' + body })),
+        chart,
         h('div', { class: 'row', style: 'gap:16px;align-items:stretch' },
           h('div', { class: 'col', style: 'flex:none;width:136px;gap:7px' },
             span('font:400 10px var(--mono);letter-spacing:.16em;color:rgba(198,194,182,.72)', 'TOTAL TIME'),
@@ -470,7 +479,9 @@
             span('font:400 10px var(--mono);letter-spacing:.14em;color:rgba(198,194,182,.62)', 'ACCURACY'),
             span('font:300 24px var(--mono);color:' + INK, tot.n ? Math.round((tot.ok / tot.n) * 100) + '%' : '—'))),
         h('div', { class: 'col', style: 'gap:9px' },
-          span('font:600 10px var(--mono);letter-spacing:.18em;color:rgba(198,194,182,.62)', 'WHO CARRIED WHO'), recap),
+          span('font:600 10px var(--mono);letter-spacing:.18em;color:rgba(198,194,182,.62)', 'WHO CARRIED WHO'),
+          span('font:400 11px/1.5 var(--sans);color:rgba(198,194,182,.55)', 'Life each player fed their partner from solo tasks, and what their misses cost them.'),
+          recap),
         h('div', { style: 'flex:1;min-height:10px' }),
         h('div', { class: 'col', style: 'gap:10px' },
           h('div', { class: 'btn primary', style: 'height:56px;flex:none', onclick: playAgain, text: 'PLAY AGAIN' }),
@@ -1331,10 +1342,45 @@
 
   const fmt = (ms) => { const s = Math.ceil(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const fmtShort = (ms) => { const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  /** End screen: every player's life over the run, co-op rounds shaded, a dot where the run died. */
+  function lifeChart(e, slotById) {
+    const tl = e.timeline, W = 300, H = 110, PAD = 4;
+    const end = Math.max(1, tl.samples[tl.samples.length - 1][0]);
+    const x = (ms) => (PAD + (ms / end) * (W - PAD * 2)).toFixed(1);
+    const y = (v) => (PAD + (1 - v / 100) * (H - PAD * 2)).toFixed(1);
+    const bands = tl.coops.filter((c) => c.end != null).map((c) =>
+      '<rect x="' + x(c.start) + '" y="0" width="' + Math.max(1, x(c.end) - x(c.start)).toFixed(1) + '" height="' + H + '" fill="' + (c.ok ? GREEN : DANGER) + '" fill-opacity=".12"></rect>');
+    const grid = [25, 50, 75].map((v) => '<line x1="0" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="rgba(198,194,182,.08)" stroke-width="1"></line>');
+    // Draw yours last so it sits on top.
+    const order = tl.ids.map((id, i) => ({ id, i, slot: slotById(id) })).sort((a, b) => (a.slot === S.slot) - (b.slot === S.slot));
+    const lines = order.map(({ i, slot }) => {
+      const pts = tl.samples.map((s) => x(s[0]) + ',' + y(s[i + 1])).join(' ');
+      const mine = slot === S.slot;
+      return '<polyline points="' + pts + '" fill="none" stroke="' + colOf(slot) + '" stroke-width="' + (mine ? 2.2 : 1.3) + '" stroke-opacity="' + (mine ? 1 : 0.8) + '" stroke-linejoin="round" stroke-linecap="round"></polyline>';
+    });
+    const di = tl.ids.indexOf(e.depleted);
+    const dot = di >= 0 ? '<circle cx="' + x(end) + '" cy="' + y(0) + '" r="3.6" fill="' + DANGER + '"></circle>' : '';
+    const svg = h('div', { style: 'position:relative;line-height:0' });
+    svg.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Life of all four players over the run" style="display:block;overflow:visible">' +
+      bands.join('') + grid.join('') + lines.join('') + dot + '</svg>';
+    const legend = tl.ids.map((id) => slotById(id)).sort((a, b) => a - b).map((slot) =>
+      h('div', { class: 'row', style: 'gap:5px;align-items:center' },
+        h('div', { style: 'width:10px;height:2px;background:' + colOf(slot) }),
+        span('font:500 9.5px var(--mono);letter-spacing:.1em;color:' + colOf(slot), nameOf(slot))));
+    return h('div', { class: 'col', style: 'gap:8px' },
+      h('div', { class: 'row', style: 'justify-content:space-between;align-items:baseline' },
+        span('font:400 10px var(--mono);letter-spacing:.16em;color:rgba(198,194,182,.72)', 'LIFE OVER THE RUN'),
+        span('font:400 9.5px var(--mono);letter-spacing:.08em;color:rgba(198,194,182,.5)', '0:00 → ' + fmtLong(end).replace(/\.\d+$/, ''))),
+      svg,
+      h('div', { class: 'row', style: 'gap:12px;flex-wrap:wrap;align-items:center' }, legend,
+        h('div', { style: 'flex:1' }),
+        span('font:400 9.5px var(--mono);letter-spacing:.06em;color:rgba(198,194,182,.5)', 'SHADED = CO-OP (GREEN WON, RED LOST)')));
+  }
+
   function fmtLong(ms) {
     const t = Math.max(0, ms);
     const m = Math.floor(t / 60000), s = Math.floor((t % 60000) / 1000), c = Math.floor((t % 1000) / 10);
-    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + ':' + String(c).padStart(2, '0');
+    return m + ':' + String(s).padStart(2, '0') + '.' + String(c).padStart(2, '0'); // 0:30.52, not 00:30:52 (read as 30 min)
   }
 
   // Desktop frame: scale the phone to fit the window.
