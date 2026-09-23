@@ -6,7 +6,7 @@ Pulled from the prototype's client-side logic (`Teamtest - Vital Link flow.dc.ht
 ## Life & credit
 - 4 players, life 0–100, starting values randomized per run (~66–90).
 - Every task belongs to the acting player. On success, the fixed partner
-  (`you→p2→p3→p4→you` rotation) is credited; on failure, that partner is
+  (by seat, every run: `P1→P2→P3→P4→P1`) is credited; on failure, that partner is
   drained instead. Amounts: solo task +9/−13, bot stand-in tasks +7/−11.
 - Continuous drain on all 4 players while `screen` is `play` or `coop`:
   `perSec = 0.42 * 1.65^max(0, minutes_elapsed - 0.5)` (the prototype used 1.5);
@@ -15,32 +15,36 @@ Pulled from the prototype's client-side logic (`Teamtest - Vital Link flow.dc.ht
   with `cause` and final standings.
 
 ## Solo task rotation
-9 task kinds cycle by index, get harder every level (every 4 of a player's
-tasks, 4 difficulty tiers): `GATE, MEMORY, DIGITS, SLIDE, ORDER, SEQUENCE,
+9 task kinds cycle by index: `GATE, MEMORY, DIGITS, SLIDE, ORDER, SEQUENCE,
 SHELL, STROOP, COUNT`. Play alternates: a 30 s solo phase (each player at
 their own pace, 4 s grace for in-flight tasks), then a 2.5 s "co-op incoming"
-card naming the variant, then one co-op round.
+card naming the variant, then one co-op round. The whole team's level goes up
+by one each time a co-op round finishes (won or lost) — never mid-phase. Most
+boards stop getting harder at LV4; GATE, ORDER, COUNT and MEMORY keep growing.
 
-- **MEMORY** — grid of 9 cells, 3 shapes placed briefly, then asked to pick
-  which shape/colour was in a marked cell from 4 choices.
+- **MEMORY** — square grid (3×3 at LV1–2, 4×4 from LV3, 5×5 from LV6) with
+  2 shapes at LV1 and one more per level (max 9), placed briefly; then pick
+  which shape/colour was in a marked cell from 4 choices. Shapes fill their cells.
 - **SEQUENCE** — Simon-style: watch a lit sequence (3-5 steps), repeat it on
   a 4-pad grid.
 - **SHELL** — 3-cup shell game: mark one, shuffle, pick.
 - **STROOP** — word names a colour rendered in a different ink colour; tap
   the ink colour, not the word.
-- **COUNT** — count shapes of one colour+form among a 20-tile grid; pick the
-  right number from 4 choices (must equal the true count).
+- **COUNT** — count shapes of one colour+form in a square grid (3×3 at LV1,
+  4×4 from LV2, 5×5 from LV4, 6×6 from LV6); pick the right number from 4
+  choices (must equal the true count).
 - **SLIDE** — drag 3-4 sliders each into a target band and release to lock;
   a difficulty-scaled drift pulls unlocked sliders away from target.
 - **GATE** — drag a ball across the screen to a goal zone, avoiding moving
-  horizontal bars; touching a bar resets the ball and costs the player life
+  horizontal bars (1 bar at LV1, one more per level, max 4 — after that the
+  bars speed up); touching a bar resets the ball and costs the player life
   directly (not partner-credit).
 - **DIGITS** — grid of repeated digits; tap every "odd" digit (different
   value) among a majority digit; a wrong tap costs the player life directly
   (once per cell — tapping the same wrong cell again is free).
-- **ORDER** — shown 2–4 numbered, coloured balls; memorize; then answer two
-  questions about them ("which number was GREEN", "what colour was the
-  highest", …) from 4 options each. Any wrong answer fails the task.
+- **ORDER** — shown numbered, coloured balls (2 at LV1–2, 3 from LV3, 4 from
+  LV8); memorize; then answer one question picked at random ("which number
+  was GREEN", "what colour was the highest", …) from 4 options.
 
 Category buckets for the results screen: memory→{MEMORY, SEQUENCE, ORDER},
 concentration→{STROOP, COUNT, DIGITS}, spatial→{SLIDE, GATE},
