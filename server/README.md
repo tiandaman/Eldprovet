@@ -54,8 +54,8 @@ HTTP: `GET /` (client), `/healthz`, `/stats`, `/leaderboard?limit=20`, `/join/:c
   - **Cutoff** (`phase.cutoff { graceEndsAt }`) at `SOLO_PHASE_MS`: no new minigames. A task in progress
     gets up to 4 s more (it's re-sent as `task.assign` with the same `id`, a shorter `deadline` and `cut: true`).
     Anyone who's finished gets `phase.waiting { until }`.
-  - **Phase end** (`phase.solo_end { coopAt }`) once everyone has finished or the 4 s run out; the co-op
-    round starts 800 ms later.
+  - **Phase end** (`phase.solo_end { coopAt, variant }`) once everyone has finished or the 4 s run out. The
+    co-op variant is picked here so clients can show a "co-op incoming" card naming it; the round starts 2.5 s later.
   - Task ids are unique across the run. Level tier = `min(3, floor((k−1)/4))`, where *k* is that player's own task count (co-op included).
 - **Deadlines** are server epoch ms = assign + `showMs` + `answerMs` + 400 ms grace.
 - **Drain** `0.42 × 1.5^max(0, min−0.5)` pts/s on all four, every 100 ms tick, from `startsAt`.
@@ -77,8 +77,8 @@ All may include `id` (the task id); a mismatched id is rejected as `stale_task`.
 | STROOP | `task.submit` | `{ ink }` colour name |
 | COUNT | `task.submit` | `{ count }` |
 | SEQUENCE | `task.submit` | `{ pad }` per press, or `{ pads: [...] }` |
-| DIGITS | `task.submit` | `{ index }` per tap — wrong tap = −6 to self |
-| ORDER | `task.submit` | `{ pick }` per ball (lowest→highest), then `{ answer }` for the follow-up |
+| DIGITS | `task.submit` | `{ index }` per tap — wrong tap = −6 to self (once per cell; repeat taps are free) |
+| ORDER | `task.submit` | `{ answer }` per question (two questions; any wrong answer fails) |
 | SLIDE | `slide.lock` | `{ track, value }` — locks if within `board.tolerance` of target |
 | GATE | `task.submit` | `{ event: "goal" }`; collisions: `gate.collision {}` or `{ event: "collision" }` = −7 to self |
 
@@ -91,7 +91,7 @@ GATE ball physics are client-side, so the server can only sanity-check it (a goa
 | tokens | `coop.claim` | `{ n }` — must be yours (`owner` = your slot − 1) and next in order, else −9 |
 | hold | `coop.hold` | `{ down: true \| false }` |
 | relay | `coop.tap` (or `coop.relay_pass`) | `{}` — on your armed turn; early = −6, +9 heat |
-| relay | `coop.vent` | `{}` — not on your own turn; 1.1 s |
+| relay | `coop.vent` | `{}` — not on your own armed turn; cools the coil for 1.1 s (shared cooldown) and locks only the venter's own taps meanwhile |
 
 `coop.state` is pushed on every change (tokens) or at 5 Hz (hold/relay) with the live board.
 
@@ -103,7 +103,7 @@ Server → client: `hello`, `room.joined { code, slot, colour, host, roster }`, 
 `coop.overheat`, `friend.list`, `friend.presence`, `account`, `leaderboard { rows }`, `pong`,
 `error { code, message, ref }` (`ref` = the offending frame's `seq`).
 
-Client → server: `queue.fill_bots` (after the wait; else `too_early`), `room.leave`, `room.join { friend }` (join a friend's room), `friend.add|remove { handle }`,
+Client → server: `queue.fill_bots` (after the wait; else `too_early` — `room.ready` in a public room that isn't full follows the same rule), `room.leave`, `room.join { friend }` (join a friend's room), `friend.add|remove { handle }`,
 `friend.list`, `account.handle { handle }`, `leaderboard.get { limit }`, `ping`, plus the co-op inputs above.
 Other telemetry the prototype emits (`task.start`, `order.wrong`, `coop.start`, …) is accepted and ignored.
 

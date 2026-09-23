@@ -61,12 +61,14 @@ function hold(room, rd, t) {
   }
 }
 
-/** Pass the charge: bots tap inside their window (12% miss) and vent when hot. */
+/** Pass the charge: bots tap inside their window (12% miss) and vent when hot.
+ * Venting only locks the venter's own tap, so a bot never vents right before its turn. */
 function relay(room, rd, t) {
   const s = rd.st;
   const seat = rd.board.order[s.hop % 4];
+  const nextSeat = rd.board.order[(s.hop + 1) % 4];
   const m = room.memberAtSeat(seat);
-  if (s.armed && m && m.bot && t >= s.ventUntil) {
+  if (s.armed && m && m.bot && t >= s.ventLock[seat]) {
     if (!s.botTapAt) {
       // A miss is modelled as never tapping; the window expiry applies the penalty.
       s.botTapAt = room.random() < 0.12 ? Infinity : t + (0.2 + room.random() * 0.6) * s.window;
@@ -75,9 +77,10 @@ function relay(room, rd, t) {
   }
   if (s.heat > 80 && t >= s.ventUntil && t >= s.botVentAt) {
     s.botVentAt = t + 1500;
-    const venters = room.members.filter((x) => x.bot && room.seatOf(x) !== seat);
+    const venters = room.members.filter((x) => x.bot && room.seatOf(x) !== seat && room.seatOf(x) !== nextSeat);
     if (venters.length && room.random() < 0.3) {
       s.ventUntil = t + rd.board.ventMs;
+      s.ventLock[room.seatOf(venters[0])] = s.ventUntil;
       s.ventBy = venters[0].playerId;
     }
   }

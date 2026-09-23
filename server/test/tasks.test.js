@@ -84,6 +84,7 @@ test('grading: multi-step kinds', () => {
   const wrong = dg.digits.findIndex((d) => d === dg.base);
   const pr = Tasks.createProgress(dg);
   assert.strictEqual(Tasks.step(pr, 'submit', { index: wrong }).penalty, 6);
+  assert.strictEqual(Tasks.step(pr, 'submit', { index: wrong }).penalty, undefined, 'double-tapping the same wrong cell costs once');
   let r;
   for (const i of dg.answer) r = Tasks.step(pr, 'submit', { index: i });
   assert.deepStrictEqual(r, { done: true, ok: true });

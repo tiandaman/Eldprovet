@@ -163,6 +163,8 @@ class Hub {
       case 'room.ready': {
         const room = this.roomOf(conn);
         if (!room) return 'not_in_room';
+        // Public rooms that aren't full only start with bots after the same wait as FILL WITH BOTS.
+        if (!room.private && !room.isFull && room.state === 'lobby') return this.queueFillBots(conn);
         return room.requestStart(conn.playerId);
       }
       case 'friend.add': return this.friendAdd(conn, p);

@@ -397,9 +397,10 @@
       case 'DIGITS': {
         if (action !== 'submit' || !('index' in p)) return null;
         st.found = st.found || [];
+        st.wrong = st.wrong || [];
         const i = num(p.index);
-        if (st.found.indexOf(i) >= 0) return { done: false };
-        if (b.answer.indexOf(i) < 0) return { done: false, penalty: b.wrongPenalty, reason: 'digits.wrong' };
+        if (st.found.indexOf(i) >= 0 || st.wrong.indexOf(i) >= 0) return { done: false }; // repeat tap on the same cell is free
+        if (b.answer.indexOf(i) < 0) { st.wrong.push(i); return { done: false, penalty: b.wrongPenalty, reason: 'digits.wrong' }; }
         st.found.push(i);
         if (st.found.length === b.answer.length) return { done: true, ok: true };
         return { done: false, progress: { found: st.found.length, of: b.answer.length } };
