@@ -91,7 +91,7 @@ test('grading: multi-step kinds', () => {
 
   const od = Tasks.generate('ORDER', 11, 0);
   assert.strictEqual(od.balls.length, 2);
-  assert.strictEqual(od.questions.length, 2);
+  assert.strictEqual(od.questions.length, 1);
   assert.strictEqual(run(od, od.questions.map((q) => ['submit', { answer: q.answer }])).ok, true);
   const wrongFirst = od.questions[0].options.find((o) => o !== od.questions[0].answer);
   assert.strictEqual(run(od, [['submit', { answer: wrongFirst }]]).ok, false);
@@ -139,16 +139,15 @@ test('co-op tokens: scattered, in bounds, never overlapping', () => {
 });
 
 
-test('ORDER: 2 balls at LV1-2, 3 from LV3, 4 from LV8; varied, well-formed questions', () => {
+test('ORDER: 2 balls at LV1-2, 3 from LV3, 4 from LV8; one random, well-formed question', () => {
   const kinds = new Set();
   for (let seed = 1; seed <= 600; seed++) {
     const lv = seed % 12;
     const b = Tasks.generate('ORDER', seed, lv);
     assert.strictEqual(b.balls.length, lv >= 7 ? 4 : lv >= 2 ? 3 : 2, 'LV' + (lv + 1));
     if (b.balls.length === 2) assert.notStrictEqual(b.balls[0].c, b.balls[1].c, 'two colours');
-    assert.strictEqual(b.questions.length, 2);
+    assert.strictEqual(b.questions.length, 1, 'one question only');
     assert.strictEqual(b.showMs, Tasks.generate('ORDER', seed, 0).showMs, 'no level ramp');
-    assert.strictEqual(new Set(b.questions.map((q) => q.kind)).size, b.questions.length, 'no repeat kinds');
     for (const q of b.questions) {
       kinds.add(q.kind);
       assert.ok(q.options.includes(q.answer), q.text);
@@ -158,10 +157,36 @@ test('ORDER: 2 balls at LV1-2, 3 from LV3, 4 from LV8; varied, well-formed quest
   assert.ok(kinds.size >= 9, 'uses the whole pool: ' + [...kinds].join(','));
 });
 
+test('GATE: one bar at LV1, one more per level, four at most', () => {
+  assert.deepStrictEqual([0, 1, 2, 3, 4, 7].map((lv) => Tasks.generate('GATE', 3, lv).bars.length), [1, 2, 3, 4, 4, 4]);
+  // Past four bars the speed keeps climbing a little.
+  const avg = (lv) => { let s = 0; for (let seed = 1; seed <= 200; seed++) s += Tasks.generate('GATE', seed, lv).bars[0].speed; return s / 200; };
+  assert.ok(avg(5) > avg(3));
+});
+
+test('COUNT: square board 3×3 at LV1, 4×4 from LV2, 5×5 from LV4, 6×6 from LV6', () => {
+  const sides = [0, 1, 2, 3, 4, 5, 9].map((lv) => Tasks.generate('COUNT', 8, lv));
+  assert.deepStrictEqual(sides.map((b) => b.gridCols), [3, 4, 4, 5, 5, 6, 6]);
+  for (const b of sides) assert.strictEqual(b.tiles.length, b.gridCols * b.gridCols);
+});
+
+test('MEMORY: 3×3 at LV1-2, 4×4 from LV3, 5×5 from LV6; shapes stay on the board', () => {
+  assert.deepStrictEqual([0, 1, 2, 4, 5, 9].map((lv) => Tasks.generate('MEMORY', 4, lv).side), [3, 3, 4, 4, 5, 5]);
+  for (let seed = 1; seed <= 300; seed++) {
+    const lv = seed % 10;
+    const b = Tasks.generate('MEMORY', seed, lv);
+    assert.strictEqual(b.grid, b.side * b.side);
+    assert.strictEqual(b.placed.length, Math.min(9, 2 + lv));
+    assert.strictEqual(new Set(b.placed.map((p) => p.i)).size, b.placed.length, 'one shape per cell');
+    for (const p of b.placed) assert.ok(p.i >= 0 && p.i < b.grid);
+    assert.strictEqual(b.choices[b.answer].c + b.choices[b.answer].sh, b.placed.find((p) => p.i === b.askCell).c + b.placed.find((p) => p.i === b.askCell).sh);
+  }
+});
+
 test('every generator terminates and COUNT always offers 4 distinct options', () => {
   // Regression: COUNT used to spin forever when the true count was 0 at level 1.
   for (const k of Tasks.SOLO_KINDS) {
-    for (let lv = 0; lv < 4; lv++) {
+    for (let lv = 0; lv < 8; lv++) {
       for (let seed = 1; seed <= 1500; seed++) {
         const b = Tasks.generate(k, seed, lv);
         if (k === 'COUNT') {

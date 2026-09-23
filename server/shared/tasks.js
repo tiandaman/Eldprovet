@@ -83,16 +83,23 @@
   const shw = (ms) => Math.round(ms * PACE.show);
 
   // Difficulty by level (index 0 = L1). L1 is deliberately gentle; the ramp starts at L2.
+  // Kinds in RAW_LEVEL get the uncapped 0-based level (they grow past L4); the rest get tierOf(level).
+  const RAW_LEVEL = { GATE: true, ORDER: true, COUNT: true, MEMORY: true };
+
   const GEN = {
-    GATE(rng, lv) {
-      const count = [1, 2, 3, 4][lv];
+    GATE(rng, level) {
+      // One bar at L1, one more each level. Four is the most the field fits with room for the
+      // ball to rest between bars; past that the bars only get faster (speed ramp stops at L6).
+      const count = Math.min(4, level + 1);
+      const lv = Math.min(5, level);
+      const base = lv === 0 ? 0.35 : 0.55 + Math.min(3, lv) * 0.28 + Math.max(0, lv - 3) * 0.12;
       const bars = [];
       for (let i = 0; i < count; i++) {
         bars.push({
           i,
           top: count === 1 ? 52 : 24 + i * (56 / (count - 1)),
           w: Math.round(30 + rng.next() * 12),
-          speed: +((lv === 0 ? 0.35 : 0.55 + lv * 0.28) + rng.next() * (lv === 0 ? 0.2 : 0.4)).toFixed(2),
+          speed: +(base + rng.next() * (lv === 0 ? 0.2 : 0.4)).toFixed(2),
           phase: +(rng.next() * 6.2).toFixed(2),
           span: 58,
         });
@@ -166,8 +173,8 @@
         () => { if (n < 3) return null; const i = rng.int(n - 1); return q('rightOf', 'WHAT CAME RIGHT AFTER ' + balls[i].v + '?', balls[i + 1].v, numberOpts(balls[i + 1].v)); },
         () => { if (n < 3) return null; const i = 1 + rng.int(n - 1); return q('leftOf', 'WHAT CAME RIGHT BEFORE ' + balls[i].v + '?', balls[i - 1].v, numberOpts(balls[i - 1].v)); },
       ];
-      // Two questions, never the same kind twice.
-      const want = 2;
+      // One question, picked at random from the kinds that fit this board.
+      const want = 1;
       const questions = [];
       const used = new Set();
       for (const make of rng.shuffle(QUESTIONS)) {
@@ -233,9 +240,12 @@
       };
     },
 
-    COUNT(rng, lv) {
+    COUNT(rng, level) {
+      // Square board: 3×3 at L1, 4×4 from L2, 5×5 from L4, 6×6 from L6.
+      const side = level >= 5 ? 6 : level >= 3 ? 5 : level >= 1 ? 4 : 3;
+      const lv = tierOf(level);
       const cols = COLOURS.slice(0, [2, 3, 3, 4][lv]);
-      const total = [12, 20, 25, 30][lv];
+      const total = side * side;
       const tiles = [];
       for (let i = 0; i < total; i++) tiles.push({ c: rng.pick(cols), sh: rng.pick(SHAPES) });
       const target = { c: rng.pick(cols), sh: rng.pick(SHAPES) };
@@ -247,16 +257,19 @@
       for (let tries = 0; set.size < 4 && tries < 40; tries++) set.add(Math.max(0, count + rng.int(spread * 2 + 1) - spread));
       for (let k = 1; set.size < 4; k++) set.add(count + k);
       return {
-        tiles, gridCols: [4, 5, 5, 6][lv], target,
+        tiles, gridCols: side, target,
         options: Array.from(set).sort((a, b) => a - b), answer: count,
         showMs: 0, answerMs: ans(11000),
       };
     },
 
-    MEMORY(rng, lv) {
+    MEMORY(rng, level) {
+      // 3×3 at L1–2, 4×4 from L3, 5×5 from L6. One more shape each level, up to 9.
+      const side = level >= 5 ? 5 : level >= 2 ? 4 : 3;
+      const lv = tierOf(level);
       const cols = COLOURS.slice(0, [2, 3, 4, 4][lv]);
-      const count = [2, 3, 5, 6][lv];
-      const idx = rng.shuffle([0, 1, 2, 3, 4, 5, 6, 7, 8]).slice(0, count);
+      const count = Math.min(9, 2 + level);
+      const idx = rng.shuffle(Array.from({ length: side * side }, (_, i) => i)).slice(0, count);
       const placed = idx.map((i) => ({ i, c: rng.pick(cols), sh: rng.pick(SHAPES) }));
       const tgt = rng.pick(placed);
       const opts = [{ c: tgt.c, sh: tgt.sh }];
@@ -269,7 +282,7 @@
       const choices = rng.shuffle(opts);
       const answer = choices.findIndex((o) => o.c === tgt.c && o.sh === tgt.sh);
       return {
-        grid: 9, placed, askCell: tgt.i, choices, answer,
+        grid: side * side, side, placed, askCell: tgt.i, choices, answer,
         showMs: shw(Math.max(1500, 2800 - lv * 420)),
         answerMs: ans(9000),
       };
@@ -341,7 +354,7 @@
   function generate(kind, seed, level) {
     const g = GEN[kind];
     if (!g) throw new Error('unknown task kind ' + kind);
-    return Object.assign({ kind, seed, level }, g(makeRng(seed), kind === 'ORDER' ? level : tierOf(level)));
+    return Object.assign({ kind, seed, level }, g(makeRng(seed), RAW_LEVEL[kind] ? level : tierOf(level)));
   }
 
   function generateCoop(variant, seed, level) {

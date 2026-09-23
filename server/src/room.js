@@ -207,10 +207,9 @@ class Room {
     const seed = Math.floor(this.random() * 0x100000000) >>> 0;
     const rng = Tasks.makeRng(seed);
     const ids = this.members.slice().sort((a, b) => a.slot - b.slot).map((m) => m.playerId);
-    // Partner ring (who credits whom), rotated per run.
-    const ring = rng.shuffle(ids);
+    // Partner ring (who credits whom) is fixed by seat: P1 → P2 → P3 → P4 → P1.
     const partnerMap = {};
-    ring.forEach((id, i) => { partnerMap[id] = ring[(i + 1) % ring.length]; });
+    ids.forEach((id, i) => { partnerMap[id] = ids[(i + 1) % ids.length]; });
     const life = {}, gave = {}, cost = {}, fed = {}, self = {}, scores = {};
     for (const id of ids) {
       life[id] = 66 + rng.int(25); // ~66–90
@@ -227,7 +226,7 @@ class Room {
       startedAt: t, runStart: t + this.cfg.firstRoundDelayMs,
       lastTick: t, lastSync: 0, lastCoopSync: 0,
       pausedAt: 0, pausedTotal: 0,
-      phaseNo: 0, taskSeq: 0, nextIsCoop: false,
+      phaseNo: 0, taskSeq: 0, nextIsCoop: false, coopsDone: 0,
       count: Object.fromEntries(ids.map((id) => [id, 0])),
       soloIndex: Object.fromEntries(ids.map((id) => [id, 0])),
       round: null, nextRoundAt: t + this.cfg.firstRoundDelayMs,
@@ -430,9 +429,9 @@ class Room {
     const run = this.run;
     const pid = m.playerId;
     const id = ++run.taskSeq;
-    const count = ++run.count[pid];                 // this player's task number (solo + co-op)
+    ++run.count[pid];                               // this player's task number (solo + co-op)
     const kind = Tasks.SOLO_KINDS[run.soloIndex[pid]++ % Tasks.SOLO_KINDS.length];
-    const level = Tasks.levelFor(count);
+    const level = run.coopsDone; // everyone levels up together, only when a co-op round finishes
     const seed = this.taskSeed(id, this.seatOf(m));
     const board = Tasks.generate(kind, seed, level);
     const tk = {
@@ -552,8 +551,8 @@ class Room {
     const t = this.now();
     const { id, seed, variant } = run.pendingCoop || this.planCoop();
     run.pendingCoop = null;
-    const counts = this.members.map((m) => ++run.count[m.playerId]);
-    const level = Tasks.levelFor(Math.round(counts.reduce((a, b) => a + b, 0) / counts.length));
+    for (const m of this.members) ++run.count[m.playerId];
+    const level = run.coopsDone;
     const board = Tasks.generateCoop(variant, seed, level);
     const rd = {
       id, n: run.phaseNo, level, coop: true, variant, seed, board,
@@ -803,6 +802,7 @@ class Room {
     if (rd.done) return;
     const run = this.run;
     rd.done = true;
+    run.coopsDone += 1; // won or lost, finishing a co-op is what raises the level
     const amount = ok ? COOP_BONUS : -COOP_PENALTY;
     const deltas = {};
     for (const m of this.members) {

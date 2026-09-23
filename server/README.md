@@ -56,7 +56,8 @@ HTTP: `GET /` (client), `/healthz`, `/stats`, `/leaderboard?limit=20`, `/join/:c
     Anyone who's finished gets `phase.waiting { until }`.
   - **Phase end** (`phase.solo_end { coopAt, variant }`) once everyone has finished or the 4 s run out. The
     co-op variant is picked here so clients can show a "co-op incoming" card naming it; the round starts 2.5 s later.
-  - Task ids are unique across the run. Level tier = `min(3, floor((k−1)/4))`, where *k* is that player's own task count (co-op included).
+  - Task ids are unique across the run. Level (0-based, shared by the team) = number of co-op rounds finished so far.
+    Partners are fixed by seat: P1 → P2 → P3 → P4 → P1.
 - **Deadlines** are server epoch ms = assign + `showMs` + `answerMs` + 400 ms grace.
 - **Drain** `0.42 × 1.5^max(0, min−0.5)` pts/s on all four, every 100 ms tick, from `startsAt`.
   `life.sync` goes out every 250 ms and after every change.
@@ -82,7 +83,7 @@ All may include `id` (the task id); a mismatched id is rejected as `stale_task`.
 | COUNT | `task.submit` | `{ count }` |
 | SEQUENCE | `task.submit` | `{ pad }` per press, or `{ pads: [...] }` |
 | DIGITS | `task.submit` | `{ index }` per tap — wrong tap = −6 to self (once per cell; repeat taps are free) |
-| ORDER | `task.submit` | `{ answer }` per question (two questions; any wrong answer fails) |
+| ORDER | `task.submit` | `{ answer }` for the single question |
 | SLIDE | `slide.lock` | `{ track, value }` — locks if within `board.tolerance` of target |
 | GATE | `task.submit` | `{ event: "goal" }`; collisions: `gate.collision {}` or `{ event: "collision" }` = −7 to self |
 

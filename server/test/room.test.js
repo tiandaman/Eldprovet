@@ -39,6 +39,36 @@ test('lobby: slots, colours, host-only start', () => {
   for (const v of Object.values(ready.life)) assert.ok(v >= 66 && v <= 90);
 });
 
+test('partners are fixed by seat: P1 → P2 → P3 → P4 → P1, every run', () => {
+  for (let i = 0; i < 3; i++) {
+    const { room, conns } = setup();
+    room.random = () => (i + 1) / 5; // different run seeds
+    room.requestStart('p1');
+    assert.deepStrictEqual(conns.p1.last('room.ready').partnerMap, { p1: 'p2', p2: 'p3', p3: 'p4', p4: 'p1' });
+  }
+});
+
+test('level only rises when a co-op round finishes (won or lost)', () => {
+  const { room, conns, clock } = setup({ coopVariant: 'tokens', soloPhaseMs: 3000 });
+  room.requestStart('p1');
+  clock.advance(1100);
+  // Plenty of solo tasks in the first phase — all stay LV1.
+  for (let k = 0; k < 6; k++) {
+    const a = conns.p1.last('task.assign');
+    assert.strictEqual(a.level, 0);
+    room.handle(room.member('p1'), 'task.submit', { id: a.id, choice: -1, cup: -1, ink: 'x', count: -1, pads: [9], answer: 'x' });
+    clock.advance(500);
+  }
+  clock.advance(3000 + 4000 + 3000); // cutoff, grace, intro → co-op
+  const coop = conns.p1.last('task.assign');
+  assert.strictEqual(coop.kind, 'COOP');
+  assert.strictEqual(coop.level, 0);
+  clock.advance(49000 + 2500);       // co-op times out (a loss still counts) → next solo phase
+  const next = conns.p1.last('task.assign');
+  assert.notStrictEqual(next.kind, 'COOP');
+  assert.strictEqual(next.level, 1);
+});
+
 test('drain applies only during play and follows the curve', () => {
   const { room, clock } = setup();
   room.requestStart('p1');
