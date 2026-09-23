@@ -7,17 +7,19 @@ Pulled from the prototype's client-side logic (`Teamtest - Vital Link flow.dc.ht
 - 4 players, life 0–100, starting values randomized per run (~66–90).
 - Every task belongs to the acting player. On success, the fixed partner
   (`you→p2→p3→p4→you` rotation) is credited; on failure, that partner is
-  drained instead. Amounts: solo task ±9/13, teammate simulated tasks ±7/11.
+  drained instead. Amounts: solo task +9/−13, bot stand-in tasks +7/−11.
 - Continuous drain on all 4 players while `screen` is `play` or `coop`:
-  `perSec = 0.42 * 1.5^max(0, minutes_elapsed - 0.5)`; apply every tick
-  (prototype ticks every 100ms, drains `perSec/10` per tick).
+  `perSec = 0.42 * 1.65^max(0, minutes_elapsed - 0.5)` (the prototype used 1.5);
+  apply every tick (server ticks every 100ms, drains `perSec/10` per tick).
 - Run ends the instant any player's life reaches 0. Broadcast `run.ended`
   with `cause` and final standings.
 
 ## Solo task rotation
-9 task kinds cycle by index, get harder every level (roughly every 4-6
+9 task kinds cycle by index, get harder every level (every 4 of a player's
 tasks, 4 difficulty tiers): `GATE, MEMORY, DIGITS, SLIDE, ORDER, SEQUENCE,
-SHELL, STROOP, COUNT`. Every 3rd task is a co-op task instead.
+SHELL, STROOP, COUNT`. Play alternates: a 30 s solo phase (each player at
+their own pace, 4 s grace for in-flight tasks), then a 2.5 s "co-op incoming"
+card naming the variant, then one co-op round.
 
 - **MEMORY** — grid of 9 cells, 3 shapes placed briefly, then asked to pick
   which shape/colour was in a marked cell from 4 choices.
@@ -34,10 +36,11 @@ SHELL, STROOP, COUNT`. Every 3rd task is a co-op task instead.
   horizontal bars; touching a bar resets the ball and costs the player life
   directly (not partner-credit).
 - **DIGITS** — grid of repeated digits; tap every "odd" digit (different
-  value) among a majority digit; wrong taps cost the player life directly.
-- **ORDER** — shown several numbered, coloured balls; memorize; then tap
-  them lowest→highest with colour hidden; on success, one follow-up
-  question ("which number was GREEN" / "what colour was 42") from 4 options.
+  value) among a majority digit; a wrong tap costs the player life directly
+  (once per cell — tapping the same wrong cell again is free).
+- **ORDER** — shown 2–4 numbered, coloured balls; memorize; then answer two
+  questions about them ("which number was GREEN", "what colour was the
+  highest", …) from 4 options each. Any wrong answer fails the task.
 
 Category buckets for the results screen: memory→{MEMORY, SEQUENCE, ORDER},
 concentration→{STROOP, COUNT, DIGITS}, spatial→{SLIDE, GATE},
@@ -60,7 +63,9 @@ multitasking→{SHELL, all co-op}.
   each getting a shrinking time window to tap when it's their turn (12%
   chance of an AI "miss" costing that player 8 life). A shared "heat" meter
   rises each hop and can be vented (server: 1.1s cooldown) only when it's
-  not your turn; heat maxing out drains all 4 by 10 and resets heat to ~42.
+  not your turn. Venting locks only the venter's own tap for those 1.1s —
+  never the player whose turn it is — so venting right before your own turn
+  risks a miss. Heat maxing out drains all 4 by 10 and resets heat to ~42.
   Player tapping early/out-of-turn costs them 6 life directly. 14 successful
   hops wins (+16 all); timeout drains all 4 by 14.
 

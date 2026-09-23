@@ -106,9 +106,14 @@ test('cutoff: in-flight tasks get 4s, finished players wait, then co-op', () => 
   assert.strictEqual(conns.p1.all('task.assign').length, assigns, 'no new solo task after cutoff');
   // others time out at grace end → phase ends → co-op
   clock.advance(rd.graceEndsAt - clock.now() + 100);
-  assert.ok(conns.p3.last('phase.solo_end'));
-  clock.advance(1000);
-  assert.strictEqual(conns.p1.last('task.assign').kind, 'COOP');
+  const end = conns.p3.last('phase.solo_end');
+  assert.ok(end);
+  assert.ok(['tokens', 'hold', 'relay'].includes(end.variant), 'intro names the co-op');
+  assert.ok(end.coopAt - clock.now() >= 2000, 'intro card gets 2–3 s');
+  clock.advance(end.coopAt - clock.now() + 100);
+  const coop = conns.p1.last('task.assign');
+  assert.strictEqual(coop.kind, 'COOP');
+  assert.strictEqual(coop.variant, end.variant, 'co-op matches the intro');
 });
 
 test('cutoff: phase ends early once everyone has finished', () => {
@@ -186,6 +191,30 @@ test('co-op relay: out-of-turn tap costs 6', () => {
   const turn = room.memberAtSeat(rd.board.order[rd.st.hop % 4]);
   room.handle(turn, 'coop.tap', {});
   assert.strictEqual(rd.st.hop, 1);
+});
+
+test('co-op relay: venting locks only the venter, not the player whose turn it is', () => {
+  const { room, clock } = setup({ coopVariant: 'relay' });
+  room.requestStart('p1');
+  room.run.nextIsCoop = true;
+  clock.advance(1100);
+  const rd = room.run.round;
+  clock.advance(1000);
+  assert.ok(rd.st.armed);
+  const turn = room.memberAtSeat(rd.board.order[rd.st.hop % 4]);
+  const venter = room.members.find((m) => m !== turn);
+  const life = room.run.life[turn.playerId];
+  assert.strictEqual(room.handle(turn, 'coop.vent', {}), 'your_turn');
+  assert.strictEqual(room.handle(venter, 'coop.vent', {}), null);
+  assert.strictEqual(room.handle(turn, 'coop.tap', {}), null, 'the active player can still catch');
+  assert.strictEqual(rd.st.hop, 1);
+  assert.ok(room.run.life[turn.playerId] > life - 1, 'no miss penalty');
+  // The venter's own tap is locked until the vent finishes.
+  const venterLife = room.run.life[venter.playerId];
+  assert.strictEqual(room.handle(venter, 'coop.tap', {}), 'venting');
+  assert.strictEqual(room.run.life[venter.playerId], venterLife);
+  clock.advance(rd.board.ventMs + 100);
+  assert.ok(clock.now() >= rd.st.ventLock[room.seatOf(venter)]);
 });
 
 test('run ends when a meter hits 0; standings + back to lobby', () => {

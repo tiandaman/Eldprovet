@@ -221,7 +221,7 @@
     'phase.solo': (p) => { S.phase = p; S.cut = false; S.waiting = null; S.incoming = 0; },
     'phase.cutoff': (p) => { S.phase = p; S.cut = true; },
     'phase.waiting': (p) => { S.waiting = p; S.task = null; },
-    'phase.solo_end': (p) => { S.waiting = null; S.task = null; S.incoming = p.coopAt; },
+    'phase.solo_end': (p) => { S.waiting = null; S.task = null; S.incoming = p.coopAt; S.incomingVariant = p.variant || null; },
     'task.assign': (x) => { S.waiting = null; S.incoming = 0; startTask(x); },
     'task.progress': (p) => onProgress(p),
     'task.result': (p) => {
@@ -789,7 +789,12 @@
       span('font:400 11.5px var(--sans);color:rgba(198,194,182,.62)', 'You feed ' + nameOf(ps) + '. ' + nameOf(fs) + ' feeds you.')) : null;
     let kick, title, sub;
     if (S.waiting) { kick = 'CUT OFF'; title = 'WAITING FOR TEAM'; sub = h('span', { 'data-waitclock': '1', style: 'font:500 13px var(--mono);color:' + AMBER }); }
-    else if (S.incoming) { kick = 'ALL FOUR'; title = 'CO-OP INCOMING'; sub = span('font:400 12px var(--sans);color:rgba(198,194,182,.62)', 'Same board. Four pairs of hands.'); }
+    else if (S.incoming) {
+      const txt = COOP_TEXT[S.incomingVariant];
+      kick = 'CO-OP INCOMING · ALL FOUR';
+      title = txt ? txt[0] : 'CO-OP INCOMING';
+      sub = span('font:400 12px/1.5 var(--sans);color:rgba(198,194,182,.62);max-width:250px;text-wrap:pretty', txt ? txt[1] : 'Same board. Four pairs of hands.');
+    }
     else { kick = 'STAND BY'; title = 'RUN STARTING'; sub = null; }
     return h('div', { class: 'col fadein', style: 'position:absolute;inset:0;align-items:center;justify-content:center;gap:22px;text-align:center' },
       h('div', { class: 'col', style: 'align-items:center;gap:9px' },
@@ -1057,7 +1062,7 @@
   const COOP_TEXT = {
     tokens: ['CLEAR 1 TO 12 IN ORDER', 'Tap only the numbers in your colour, and only when it is their turn.', 'ALL TWELVE CLEARED'],
     hold: ['ALL FOUR HOLD AT ONCE', 'Your pad only responds while you are pressing it. Nobody can tell you when to let go.', 'CHARGE COMPLETE'],
-    relay: ['CATCH THE CHARGE', "The coil heats every hop. Catch on your turn, vent on theirs — let it redline and all four of you pay.", 'CHAIN HELD'],
+    relay: ['CATCH THE CHARGE', "The coil heats every hop. Catch on your turn, vent on theirs — venting ties up your own hands for a second. Let it redline and all four of you pay.", 'CHAIN HELD'],
   };
 
   function buildCoop(tk) {
@@ -1230,7 +1235,8 @@
       ui.gripLbl.textContent = 'GRIP ' + grip + '%'; ui.gripLbl.style.color = gcol;
       ui.hint.textContent = broken ? 'GRIP TORN — WAIT FOR IT TO RECOVER' : tk.holding ? 'GRIP BURNS WHILE YOU HOLD — SPEND IT WHEN THEY ARE UP' : 'PRESS AND HOLD YOUR PAD';
     } else if (c.variant === 'relay' && ui.seats) {
-      const venting = now() < c.ventUntil;
+      const venting = now() < c.ventUntil;                            // someone is venting (shared cooldown)
+      const selfVenting = now() < ((c.ventLock || [])[mySeat()] || 0); // only the venter is locked out
       ui.seats.forEach((s) => {
         const active = !c.done && c.turn === s.seat && c.armed;
         const col = colOf(s.slot);
@@ -1245,7 +1251,7 @@
       ui.heat.style.width = c.heat + '%'; ui.heat.style.background = hcol;
       ui.heatLbl.textContent = c.heat > 78 ? 'CRITICAL' : c.heat > 48 ? 'HOT' : 'NOMINAL'; ui.heatLbl.style.color = hcol;
       const mine = c.turn === mySeat(), armed = mine && c.armed;
-      ui.tap.textContent = venting ? 'VENTING' : mine ? (c.armed ? 'TAP NOW' : 'GET READY') : 'NOT YOUR TURN';
+      ui.tap.textContent = selfVenting ? 'VENTING' : mine ? (c.armed ? 'TAP NOW' : 'GET READY') : 'NOT YOUR TURN';
       ui.tap.style.borderColor = armed ? GREEN : 'rgba(198,194,182,.22)';
       ui.tap.style.background = armed ? 'rgba(95,201,138,.16)' : 'rgba(198,194,182,.03)';
       ui.tap.style.color = armed ? GREEN : 'rgba(198,194,182,.62)';

@@ -154,6 +154,8 @@ test('queue: no auto-fill; fill_bots only after the wait', async (t) => {
   assert.strictEqual(joined.botsAfterMs, 600);
   c.send('queue.fill_bots');
   assert.strictEqual((await c.wait('error', (p) => p.code === 'too_early')).code, 'too_early');
+  c.send('room.ready'); // the queue room's "host" can't skip the wait either
+  await c.wait('error', (p) => p.code === 'too_early' && p.message === 'room.ready');
   await new Promise((r) => setTimeout(r, 1300)); // well past the old auto-fill tick: still nobody added
   assert.ok(!c.inbox.some((f) => f.type === 'room.ready'), 'no auto-fill');
   c.send('queue.fill_bots');

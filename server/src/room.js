@@ -20,7 +20,7 @@ const DEFAULTS = {
   soloPhaseMs: 30000,      // solo minigames rotate freely until this cutoff…
   cutoffGraceMs: 4000,     // …then in-flight tasks get this long to finish
   soloNextMs: 400,         // verdict flash before a player's next minigame
-  coopIntroMs: 800,        // beat between the solo phase ending and co-op starting
+  coopIntroMs: 2500,       // "co-op incoming" card between the solo phase ending and co-op starting
   coopWinGapMs: 2000,
   coopFailGapMs: 1800,
   latencyGraceMs: 400,     // added to every deadline
@@ -287,7 +287,10 @@ class Room {
     });
     this.sendTo(m, 'life.sync', { life: this.lifePayload(), decay: r2(this.decay()) });
     const rd = run.round;
-    if (!rd) return;
+    if (!rd) {
+      if (run.pendingCoop) this.sendTo(m, 'phase.solo_end', this.soloEndPayload());
+      return;
+    }
     if (rd.coop) {
       this.sendTo(m, 'task.assign', this.coopAssignPayload(rd));
       this.sendTo(m, 'coop.state', this.coopStatePayload(rd));
@@ -483,7 +486,14 @@ class Room {
     run.round = null;
     run.nextIsCoop = true;
     run.nextRoundAt = this.now() + this.cfg.coopIntroMs;
-    this.broadcast('phase.solo_end', { n: rd.n, coopAt: run.nextRoundAt });
+    run.pendingCoop = this.planCoop(); // picked now so the intro card can name it
+    run.pendingCoop.n = rd.n;
+    this.broadcast('phase.solo_end', this.soloEndPayload());
+  }
+
+  soloEndPayload() {
+    const p = this.run.pendingCoop;
+    return { n: p.n, coopAt: this.run.nextRoundAt, variant: p.variant };
   }
 
   /** Grade → credit the partner immediately → next task (or wait, after cutoff). */
@@ -514,14 +524,21 @@ class Room {
   }
 
   // ── co-op round ─────────────────────────────────────────
+  /** Reserve the next co-op round's id, seed and variant. */
+  planCoop() {
+    const id = ++this.run.taskSeq;
+    const seed = this.taskSeed(id, 99);
+    const variant = this.cfg.coopVariant || Tasks.COOP_VARIANTS[Tasks.makeRng(seed).int(Tasks.COOP_VARIANTS.length)];
+    return { id, seed, variant };
+  }
+
   startCoop() {
     const run = this.run;
     const t = this.now();
-    const id = ++run.taskSeq;
+    const { id, seed, variant } = run.pendingCoop || this.planCoop();
+    run.pendingCoop = null;
     const counts = this.members.map((m) => ++run.count[m.playerId]);
     const level = Tasks.levelFor(Math.round(counts.reduce((a, b) => a + b, 0) / counts.length));
-    const seed = this.taskSeed(id, 99);
-    const variant = this.cfg.coopVariant || Tasks.COOP_VARIANTS[Tasks.makeRng(seed).int(Tasks.COOP_VARIANTS.length)];
     const board = Tasks.generateCoop(variant, seed, level);
     const rd = {
       id, n: run.phaseNo, level, coop: true, variant, seed, board,
@@ -606,6 +623,7 @@ class Room {
         if (s.armed && rd.board.order[s.hop % 4] === seat) return 'your_turn';
         if (t < s.ventUntil) return 'cooldown';
         s.ventUntil = t + rd.board.ventMs;
+        s.ventLock[seat] = s.ventUntil; // venting ties up the venter's own hands, nobody else's
         s.ventBy = m.playerId;
         this.syncCoop(rd, true);
         return null;
@@ -633,7 +651,7 @@ class Room {
 
   relayTap(rd, m, seat, t) {
     const s = rd.st;
-    if (t < s.ventUntil) return 'venting';
+    if (t < s.ventLock[seat]) return 'venting';
     const current = rd.board.order[s.hop % 4];
     if (current !== seat || !s.armed) {
       s.heat = Math.min(100, s.heat + 9);
@@ -753,6 +771,7 @@ class Room {
       turn: seat, armed: s.armed, windowMs: Math.round(s.window),
       closesAt: s.armed ? Math.round(s.at) : null,
       heat: Math.round(s.heat), venting: this.now() < s.ventUntil, ventUntil: s.ventUntil,
+      ventLock: s.ventLock.slice(),
     });
   }
 
@@ -833,7 +852,7 @@ function initCoop(rd, room, t) {
   } else {
     rd.st = {
       hop: 0, armed: false, at: t + 900, window: rd.board.windowMs,
-      heat: 0, ventUntil: 0, overheatUntil: 0, botTapAt: 0, botVentAt: 0,
+      heat: 0, ventUntil: 0, ventLock: [0, 0, 0, 0], overheatUntil: 0, botTapAt: 0, botVentAt: 0,
     };
   }
 }
@@ -846,6 +865,7 @@ function shiftCoop(rd, shift) {
     if (s[key]) s[key] += shift;
   }
   if (s.botPlan) s.botPlan = s.botPlan.map((v) => (v ? v + shift : v));
+  if (s.ventLock) s.ventLock = s.ventLock.map((v) => (v ? v + shift : v));
 }
 
 module.exports = { Room, decayAt, SLOT_COLOURS, SIZE, DEFAULTS };
