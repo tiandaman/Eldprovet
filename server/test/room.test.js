@@ -229,6 +229,54 @@ test('run ends when a meter hits 0; standings + back to lobby', () => {
   assert.strictEqual(room.state, 'lobby');
 });
 
+test('run.ended carries a life timeline, co-op spans and per-partner feed', () => {
+  const { room, conns, clock } = setup({ coopVariant: 'tokens', soloPhaseMs: 5000 });
+  room.requestStart('p1');
+  clock.advance(1100);
+  // p1 answers one MEMORY-style task wrong and one GATE right → partner credit is tracked per actor.
+  const a = conns.p1.last('task.assign');
+  clock.advance(700);
+  room.handle(room.member('p1'), 'task.submit', { id: a.id, event: 'goal' });  // GATE ok → +9 to partner
+  room.handle(room.member('p1'), 'gate.collision', {});                       // no task any more → ignored
+  clock.advance(500);
+  const b = conns.p1.last('task.assign');
+  room.handle(room.member('p1'), 'task.submit', { id: b.id, choice: -1 });    // MEMORY wrong → −13 to partner
+  // Let the solo phase end and the co-op run out.
+  clock.advance(5000 + 4000 + 3000);
+  assert.strictEqual(room.run.round.coop, true);
+  clock.advance(49000);
+  room.run.life.p3 = 0.01;
+  clock.advance(200);
+  const end = conns.p1.last('run.ended');
+  const tl = end.timeline;
+  assert.deepStrictEqual(tl.ids.slice().sort(), ['p1', 'p2', 'p3', 'p4']);
+  assert.ok(tl.samples.length > 20, 'sampled every 2 s');
+  for (const s of tl.samples) assert.strictEqual(s.length, 5);
+  assert.ok(tl.samples[1][0] - tl.samples[0][0] >= 1900);
+  const last = tl.samples[tl.samples.length - 1];
+  assert.strictEqual(last[0], end.teamTime, 'final sample at the moment it ended');
+  assert.strictEqual(last[1 + tl.ids.indexOf('p3')], 0);
+  assert.strictEqual(tl.coops.length, 1);
+  assert.strictEqual(tl.coops[0].ok, false);
+  assert.ok(tl.coops[0].end > tl.coops[0].start);
+  const p1 = end.standings.find((s) => s.playerId === 'p1');
+  assert.strictEqual(p1.partner, room.run.partnerMap.p1);
+  assert.deepStrictEqual(p1.fed, { plus: 9, minus: 26 }); // wrong MEMORY + the next task timing out at the cutoff
+  assert.ok(p1.gave > p1.fed.plus - 0.01, 'legacy gave still reported');
+});
+
+test('self-penalties are tracked apart from partner feed', () => {
+  const { room, conns, clock } = setup();
+  room.requestStart('p1');
+  clock.advance(1100);
+  room.handle(room.member('p1'), 'gate.collision', {}); // −7 to self
+  room.run.life.p4 = 0.01;
+  clock.advance(200);
+  const p1 = conns.p1.last('run.ended').standings.find((s) => s.playerId === 'p1');
+  assert.strictEqual(p1.self, 7);
+  assert.deepStrictEqual(p1.fed, { plus: 0, minus: 0 });
+});
+
 test('drop pauses the run; bot takes the seat after grace; rejoin reclaims', () => {
   const { room, conns, clock } = setup({ pauseGraceMs: 2000 });
   room.requestStart('p1');

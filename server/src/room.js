@@ -211,15 +211,19 @@ class Room {
     const ring = rng.shuffle(ids);
     const partnerMap = {};
     ring.forEach((id, i) => { partnerMap[id] = ring[(i + 1) % ring.length]; });
-    const life = {}, gave = {}, cost = {}, scores = {};
+    const life = {}, gave = {}, cost = {}, fed = {}, self = {}, scores = {};
     for (const id of ids) {
       life[id] = 66 + rng.int(25); // ~66–90
       gave[id] = 0; cost[id] = 0;
+      fed[id] = { plus: 0, minus: 0 }; // partner credit from this player's solo tasks
+      self[id] = 0;                    // life this player lost to their own slips (wrong taps, misses…)
       scores[id] = { memory: { n: 0, ok: 0 }, concentration: { n: 0, ok: 0 }, spatial: { n: 0, ok: 0 }, multitasking: { n: 0, ok: 0 } };
     }
     this.state = 'play';
     this.run = {
-      seed, partnerMap, life, gave, cost, scores,
+      seed, partnerMap, life, gave, cost, fed, self, scores,
+      // Life over time for the end screen: [elapsedMs, life of ids[0..3]] every `everyMs`.
+      timeline: { everyMs: 2000, ids, samples: [], coops: [] }, nextSampleAt: 0,
       startedAt: t, runStart: t + this.cfg.firstRoundDelayMs,
       lastTick: t, lastSync: 0, lastCoopSync: 0,
       pausedAt: 0, pausedTotal: 0,
@@ -340,6 +344,10 @@ class Room {
     // Continuous drain.
     const perSec = this.decay();
     for (const id of Object.keys(run.life)) run.life[id] = clamp(run.life[id] - perSec * dt, 0, 100);
+    if (this.elapsed() >= run.nextSampleAt) {
+      this.sampleLife();
+      run.nextSampleAt += run.timeline.everyMs;
+    }
     if (this.checkDeath()) return;
 
     // Round flow.
@@ -353,6 +361,11 @@ class Room {
       run.lastSync = t;
       this.broadcast('life.sync', { life: this.lifePayload(), decay: r2(perSec) });
     }
+  }
+
+  sampleLife() {
+    const tl = this.run.timeline;
+    tl.samples.push([Math.round(this.elapsed())].concat(tl.ids.map((id) => Math.round(this.run.life[id] * 10) / 10)));
   }
 
   checkDeath() {
@@ -373,6 +386,7 @@ class Room {
   /** Immediate self-penalty (wrong tap, collision…). */
   penalise(m, amount, reason) {
     this.applyLife(m.playerId, -amount, m.playerId);
+    this.run.self[m.playerId] += amount;
     this.broadcast('life.penalty', { playerId: m.playerId, slot: m.slot, amount: -amount, reason });
     this.broadcast('life.sync', { life: this.lifePayload(), decay: r2(this.decay()) });
     this.checkDeath();
@@ -511,6 +525,7 @@ class Room {
     const amount = ok ? table.ok : table.fail;
     const target = run.partnerMap[tk.playerId];
     this.applyLife(target, amount, tk.playerId);
+    if (amount > 0) run.fed[tk.playerId].plus += amount; else run.fed[tk.playerId].minus += -amount;
     const cat = Tasks.CATEGORY[tk.kind];
     run.scores[tk.playerId][cat].n += 1;
     if (ok) { run.scores[tk.playerId][cat].ok += 1; run.tasksCleared += 1; }
@@ -546,6 +561,7 @@ class Room {
     };
     initCoop(rd, this, t);
     run.round = rd;
+    run.timeline.coops.push({ start: Math.round(this.elapsed()), end: null, ok: null, variant });
     this.broadcast('task.assign', this.coopAssignPayload(rd));
     this.broadcast('coop.state', this.coopStatePayload(rd));
   }
@@ -796,6 +812,8 @@ class Room {
       if (ok) run.scores[m.playerId].multitasking.ok += 1;
     }
     if (ok) run.tasksCleared += 1;
+    const span = run.timeline.coops[run.timeline.coops.length - 1];
+    if (span && span.end == null) { span.end = Math.round(this.elapsed()); span.ok = ok; }
     rd.nextAt = this.now() + (ok ? this.cfg.coopWinGapMs : this.cfg.coopFailGapMs);
     run.nextIsCoop = false;
     this.broadcast('coop.state', this.coopStatePayload(rd));
@@ -814,14 +832,21 @@ class Room {
     this.stopTimer();
     this.state = 'ended';
     const teamTime = Math.max(0, (run.pausedAt || t) - run.runStart);
+    const tl = run.timeline;
+    tl.samples.push([Math.round(teamTime)].concat(tl.ids.map((id) => r2(run.life[id])))); // the moment it ended
+    const openCoop = tl.coops[tl.coops.length - 1];
+    if (openCoop && openCoop.end == null) openCoop.end = Math.round(teamTime);
     const standings = this.members
       .map((m) => ({
         slot: m.slot, playerId: m.playerId, bot: m.bot,
         gave: r2(run.gave[m.playerId]), cost: r2(run.cost[m.playerId]),
+        partner: run.partnerMap[m.playerId],
+        fed: { plus: r2(run.fed[m.playerId].plus), minus: r2(run.fed[m.playerId].minus) },
+        self: r2(run.self[m.playerId]),
         finalLife: r2(run.life[m.playerId]), scores: run.scores[m.playerId],
       }))
       .sort((a, b) => b.finalLife - a.finalLife);
-    this.broadcast('run.ended', { cause, depleted: deadId || null, standings, teamTime, tasksCleared: run.tasksCleared });
+    this.broadcast('run.ended', { cause, depleted: deadId || null, standings, teamTime, tasksCleared: run.tasksCleared, timeline: tl });
     this.log('run.ended', { room: this.code, cause, teamTime });
     if (this.store && this.members.some((m) => !m.synthetic)) {
       this.store.recordRun({
