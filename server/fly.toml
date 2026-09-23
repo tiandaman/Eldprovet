@@ -1,0 +1,27 @@
+# Fly.io: run from this folder →  fly launch --copy-config --no-deploy  then  fly deploy
+app = "teamtest"                 # must be globally unique; fly launch will offer to rename it
+primary_region = "dfw"           # Dallas — closest to Wichita
+
+[build]                          # uses ./Dockerfile
+
+[env]
+  PORT = "8787"
+  QUEUE_BOT_FILL_MS = "0"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "off"     # keep it warm; live games are in memory
+  auto_start_machines = true
+  min_machines_running = 1       # exactly one: rooms live in this process's memory
+
+  [[http_service.checks]]
+    grace_period = "5s"
+    interval = "15s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "2s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

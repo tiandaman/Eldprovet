@@ -1,0 +1,24 @@
+# Render blueprint: New → Blueprint → pick this repo.
+# One web service; WebSockets work out of the box, HTTPS/WSS is automatic.
+services:
+  - type: web
+    name: teamtest
+    runtime: node
+    region: ohio            # NA (use "oregon" for west coast)
+    plan: free              # free sleeps after ~15 min idle; first visit wakes it (~30 s)
+    rootDir: server         # remove this line if the repo root IS the server folder
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/index.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: QUEUE_BOT_FILL_MS
+        value: "0"          # no auto-fill; players press FILL WITH BOTS after 10 s
+    # Accounts/leaderboard live in a JSON file. On the free plan it resets on every
+    # restart/deploy. For it to persist, switch to a paid plan and uncomment:
+    # disk:
+    #   name: data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # and add envVar DATA_FILE=/var/data/db.json
